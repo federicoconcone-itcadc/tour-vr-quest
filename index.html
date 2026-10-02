@@ -3,41 +3,55 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tour Virtuale 360°: Scuola - Rotonda - Lidl</title>
+    <title>Tour Virtuale 360° VR - Pannellum</title>
+    <!-- CSS Pannellum -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pannellum@2.5.7/build/pannellum.css"/>
-    <script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.7/build/pannellum.js"></script>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #000; }
         #panorama { width: 100vw; height: 100vh; }
+        
+        /* Tasto Custom WebXR Forzato per Quest / Wolvic */
+        #enter-vr-btn {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 9999;
+            padding: 12px 24px;
+            background: #008CBA;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
     </style>
 </head>
 <body>
 
 <div id="panorama"></div>
+<button id="enter-vr-btn" onclick="startWebXRSession()">ENTRA IN VR (360°)</button>
 
-<!-- JS Pannellum + WebXR Polyfill per abilitare il pulsante VR nei visori -->
+<!-- Librerie Pannellum + WebXR Bridge -->
 <script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.7/build/pannellum.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/webxr-polyfill@latest/build/webxr-polyfill.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
 <script>
-// Attiva il supporto WebXR per i browser VR
-if (typeof WebXRPolyfill !== 'undefined') {
-    new WebXRPolyfill();
-}
-    
-pannellum.viewer('panorama', {
+// 1. Configurazione standard Pannellum
+var viewer = pannellum.viewer('panorama', {
     "default": {
         "firstScene": "scuola",
         "autoLoad": true,
         "sceneFadeDuration": 1000,
-        "showFullscreenCtrl": true,    // 👈 Abilita il pulsante Schermo Intero/VR
-        "orientationOnByDefault": true, // 👈 Forza l'uso dei sensori/tracciamento del Quest
-        "hotSpotDebug": true // 👈 Utile durante il test per trovare le coordinate
+        "showFullscreenCtrl": true,
+        "orientationOnByDefault": true,
+        "hotSpotDebug": false
     },
     "scenes": {
         "scuola": {
             "title": "Ingresso Scuola",
-            "panorama": "./foto/scuola.jpg",
+            "panorama": "foto/scuola.jpg",
             "hotSpots": [
                 { "pitch": -5, "yaw": 100, "type": "scene", "text": "Vai alla Rotonda", "sceneId": "rotonda" },
                 { "pitch": 10, "yaw": -30, "type": "info", "text": "Scuola Secondaria" }
@@ -45,7 +59,7 @@ pannellum.viewer('panorama', {
         },
         "rotonda": {
             "title": "Rotonda Stradale",
-            "panorama": "./foto/rotonda.jpg",
+            "panorama": "foto/rotonda.jpg",
             "hotSpots": [
                 { "pitch": -5, "yaw": -80, "type": "scene", "text": "Torna alla Scuola", "sceneId": "scuola" },
                 { "pitch": -5, "yaw": 90, "type": "scene", "text": "Prosegui verso la Lidl", "sceneId": "lidl" }
@@ -53,7 +67,7 @@ pannellum.viewer('panorama', {
         },
         "lidl": {
             "title": "Supermercato Lidl",
-            "panorama": "./foto/lidl.jpg",
+            "panorama": "foto/lidl.jpg",
             "hotSpots": [
                 { "pitch": -5, "yaw": -120, "type": "scene", "text": "Torna alla Rotonda", "sceneId": "rotonda" },
                 { "pitch": 12, "yaw": 15, "type": "info", "text": "Lidl - Aperto 8:00-20:00" }
@@ -61,6 +75,25 @@ pannellum.viewer('panorama', {
         }
     }
 });
+
+// 2. Funzione per forzare l'uscita dalla finestra 2D ed entrare in VR
+function startWebXRSession() {
+    if (navigator.xr) {
+        navigator.xr.requestSession('immersive-vr', {
+            optionalFeatures: ['local-floor', 'bounded-floor']
+        }).then(function(session) {
+            // Avvia la proiezione a 360 gradi nel visore
+            var canvas = document.querySelector('.pnm-render-container canvas') || document.querySelector('canvas');
+            if (canvas && canvas.requestFullscreen) {
+                canvas.requestFullscreen();
+            }
+        }).catch(function(err) {
+            alert("WebXR Immersive non avviabile: " + err.message);
+        });
+    } else {
+        alert("Il browser non supporta WebXR nativo.");
+    }
+}
 </script>
 
 </body>
