@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tour Virtuale 360°: Scuola - Rotonda - Lidl</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pannellum@2.5.7/build/pannellum.css"/>
+    <script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.7/build/pannellum.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+        #panorama { width: 100vw; height: 100vh; }
+    </style>
+</head>
+<body>
+
+<div id="panorama"></div>
+
+<script>
+pannellum.viewer('panorama', {
+    "default": {
+        "firstScene": "scuola",
+        "autoLoad": true,
+        "sceneFadeDuration": 1000,
+        "hotSpotDebug": true // 👈 Utile durante il test per trovare le coordinate
+    },
+    "scenes": {
+        "scuola": {
+            "title": "Ingresso Scuola",
+            "panorama": "./foto/scuola.jpg",
+            "hotSpots": [
+                { "pitch": -5, "yaw": 100, "type": "scene", "text": "Vai alla Rotonda", "sceneId": "rotonda" },
+                { "pitch": 10, "yaw": -30, "type": "info", "text": "Scuola Secondaria" }
+            ]
+        },
+        "rotonda": {
+            "title": "Rotonda Stradale",
+            "panorama": "./foto/rotonda.jpg",
+            "hotSpots": [
+                { "pitch": -5, "yaw": -80, "type": "scene", "text": "Torna alla Scuola", "sceneId": "scuola" },
+                { "pitch": -5, "yaw": 90, "type": "scene", "text": "Prosegui verso la Lidl", "sceneId": "lidl" }
+            ]
+        },
+        "lidl": {
+            "title": "Supermercato Lidl",
+            "panorama": "./foto/lidl.jpg",
+            "hotSpots": [
+                { "pitch": -5, "yaw": -120, "type": "scene", "text": "Torna alla Rotonda", "sceneId": "rotonda" },
+                { "pitch": 12, "yaw": 15, "type": "info", "text": "Lidl - Aperto 8:00-20:00" }
+            ]
+        }
+    }
+});
+</script>
+
+</body>
+</html>
