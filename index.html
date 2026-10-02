@@ -15,7 +15,16 @@
 
 <div id="panorama"></div>
 
+<!-- JS Pannellum + WebXR Polyfill per abilitare il pulsante VR nei visori -->
+<script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.7/build/pannellum.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/webxr-polyfill@latest/build/webxr-polyfill.js"></script>
+
 <script>
+// Attiva il supporto WebXR per i browser VR
+if (typeof WebXRPolyfill !== 'undefined') {
+    new WebXRPolyfill();
+}
+    
 pannellum.viewer('panorama', {
     "default": {
         "firstScene": "scuola",
