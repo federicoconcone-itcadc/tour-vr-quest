@@ -77,21 +77,49 @@ var viewer = pannellum.viewer('panorama', {
 });
 
 // 2. Funzione per forzare l'uscita dalla finestra 2D ed entrare in VR
-function startWebXRSession() {
+var xrSession = null;
+
+async function startWebXRSession() {
+    // 1. Se c'è già una sessione attiva, chiudila prima di riprovare
+    if (xrSession) {
+        await xrSession.end();
+        xrSession = null;
+        return;
+    }
+
     if (navigator.xr) {
-        navigator.xr.requestSession('immersive-vr', {
-            optionalFeatures: ['local-floor', 'bounded-floor']
-        }).then(function(session) {
-            // Avvia la proiezione a 360 gradi nel visore
-            var canvas = document.querySelector('.pnm-render-container canvas') || document.querySelector('canvas');
-            if (canvas && canvas.requestFullscreen) {
-                canvas.requestFullscreen();
+        // 2. Verifica se il dispositivo supporta la modalità immersiva VR
+        const supported = await navigator.xr.isSessionSupported('immersive-vr');
+        
+        if (supported) {
+            try {
+                // 3. Richiedi la sessione WebXR
+                xrSession = await navigator.xr.requestSession('immersive-vr', {
+                    optionalFeatures: ['local-floor', 'bounded-floor']
+                });
+
+                // Gestisci la chiusura della sessione quando l'utente esce dalla VR
+                xrSession.addEventListener('end', () => {
+                    xrSession = null;
+                });
+
+                // Forza l'ingrandimento del canvas di Pannellum
+                var canvas = document.querySelector('.pnm-render-container canvas') || document.querySelector('canvas');
+                if (canvas && canvas.requestFullscreen) {
+                    await canvas.requestFullscreen();
+                }
+            } catch (err) {
+                console.error("Errore nell'avvio WebXR:", err);
+                // Se l'errore indica che c'è già una sessione, ripristina la variabile
+                if (err.message.includes("session")) {
+                    xrSession = null;
+                }
             }
-        }).catch(function(err) {
-            alert("WebXR Immersive non avviabile: " + err.message);
-        });
+        } else {
+            alert("La modalità VR immersiva non è supportata da questo browser.");
+        }
     } else {
-        alert("Il browser non supporta WebXR nativo.");
+        alert("WebXR non supportato.");
     }
 }
 </script>
