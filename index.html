@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tour Virtuale 360° VR Universale</title>
+    <title>Tour Virtuale 360° VR Universale con Joystick</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
         #vr-button {
@@ -31,7 +31,7 @@
 
     <script>
     // =========================================================================
-    // CONFIGURAZIONE PANNELLUM (Incolla qui qualsiasi configurazione Pannellum!)
+    // CONFIGURAZIONE PANNELLUM
     // =========================================================================
     const pannellumConfig = {
         "default": {
@@ -66,13 +66,18 @@
     };
 
     // =========================================================================
-    // MOTORE WEBXR GENERICO (Non toccare questo codice)
+    // MOTORE WEBXR CON SUPPORTO JOYSTICK
     // =========================================================================
     let scene, camera, renderer, sphere, textureLoader;
+    let cameraRig; // Contenitore della fotocamera per gestire il movimento nello spazio
     let controller1, controller2;
     let raycaster, tempMatrix = new THREE.Matrix4();
-    let currentHotspotGroup = null; // Contenitore unico per facile pulizia
+    let currentHotspotGroup = null;
     let interactiveObjects = [];
+
+    // Variabili per il movimento tramite Joystick
+    const moveSpeed = 0.1;
+    const rotateSpeed = 0.03;
 
     function convertPitchYawToVector(pitch, yaw, radius = 15) {
         const phi = THREE.MathUtils.degToRad(90 - pitch);
@@ -115,14 +120,20 @@
 
     function init() {
         scene = new THREE.Scene();
+        
+        // Rig per muovere l'utente mantenendo il tracciamento della testa
+        cameraRig = new THREE.Group();
+        scene.add(cameraRig);
+
         camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        cameraRig.add(camera);
 
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.xr.enabled = true;
         document.body.appendChild(renderer.domElement);
 
-        // Sfera 360
+        // Sfera Panorama 360°
         const geometry = new THREE.SphereGeometry(500, 60, 40);
         geometry.scale(-1, 1, 1);
 
@@ -133,22 +144,21 @@
         raycaster = new THREE.Raycaster();
         setupControllers();
 
-        // Carica la prima scena definita nella configurazione
         const firstSceneKey = pannellumConfig.default.firstScene || Object.keys(pannellumConfig.scenes)[0];
         loadScene(firstSceneKey);
 
-        renderer.setAnimationLoop(() => renderer.render(scene, camera));
+        renderer.setAnimationLoop(render);
         window.addEventListener('resize', onWindowResize);
     }
 
     function setupControllers() {
         controller1 = renderer.xr.getController(0);
         controller1.addEventListener('selectstart', onSelectStart);
-        scene.add(controller1);
+        cameraRig.add(controller1);
 
         controller2 = renderer.xr.getController(1);
         controller2.addEventListener('selectstart', onSelectStart);
-        scene.add(controller2);
+        cameraRig.add(controller2);
 
         const laserGeometry = new THREE.BufferGeometry().setFromPoints([
             new THREE.Vector3(0, 0, 0),
@@ -161,69 +171,104 @@
     }
 
     function loadScene(sceneKey) {
-    const sceneData = pannellumConfig.scenes[sceneKey];
-    if (!sceneData) return;
+        const sceneData = pannellumConfig.scenes[sceneKey];
+        if (!sceneData) return;
 
-    // 1. Carica la nuova foto panorama
-    textureLoader.load(sceneData.panorama, (texture) => {
-        sphere.material.map = texture;
-        sphere.material.needsUpdate = true;
-    });
+        // Reset posizione dell'utente al centro ad ogni cambio di scena
+        cameraRig.position.set(0, 0, 0);
+        cameraRig.rotation.set(0, 0, 0);
 
-    // 2. PULIZIA PROFONDA: Distrugge fisicamente tutti i vecchi hotspot dalla memoria/GPU
-    if (currentHotspotGroup) {
-        currentHotspotGroup.traverse((child) => {
-            if (child.isMesh || child.isSprite) {
-                if (child.geometry) child.geometry.dispose();
-                if (child.material) {
-                    if (child.material.map) child.material.map.dispose();
-                    child.material.dispose();
+        textureLoader.load(sceneData.panorama, (texture) => {
+            sphere.material.map = texture;
+            sphere.material.needsUpdate = true;
+        });
+
+        // Pulizia profonda vecchi hotspot
+        if (currentHotspotGroup) {
+            currentHotspotGroup.traverse((child) => {
+                if (child.isMesh || child.isSprite) {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        if (child.material.map) child.material.map.dispose();
+                        child.material.dispose();
+                    }
+                }
+            });
+            scene.remove(currentHotspotGroup);
+        }
+
+        currentHotspotGroup = new THREE.Group();
+        scene.add(currentHotspotGroup);
+        interactiveObjects = [];
+
+        if (sceneData.hotSpots && Array.isArray(sceneData.hotSpots)) {
+            sceneData.hotSpots.forEach(hs => {
+                const pos = convertPitchYawToVector(hs.pitch, hs.yaw, 15);
+                const isScene = hs.type === 'scene';
+
+                const hsNode = new THREE.Group();
+                hsNode.position.copy(pos);
+
+                const hsGeo = new THREE.SphereGeometry(0.25, 32, 32);
+                const hsMat = new THREE.MeshBasicMaterial({ color: isScene ? 0x008CBA : 0xFFA500 });
+                const hsMesh = new THREE.Mesh(hsGeo, hsMat);
+                hsNode.add(hsMesh);
+
+                const sprite = createTextSprite(hs.text || '', isScene);
+                sprite.position.set(0, 0.6, 0);
+                hsNode.add(sprite);
+
+                hsMesh.userData = { 
+                    type: hs.type, 
+                    targetScene: hs.sceneId 
+                };
+
+                currentHotspotGroup.add(hsNode);
+
+                if (isScene) {
+                    interactiveObjects.push(hsMesh);
+                }
+            });
+        }
+    }
+
+    // Gestione Input Joystick
+    function handleJoystickMovement() {
+        const session = renderer.xr.getSession();
+        if (!session) return;
+
+        for (const source of session.inputSources) {
+            if (source.gamepad) {
+                const axes = source.gamepad.axes;
+                // axes[2] o axes[0] = X (destra/sinistra), axes[3] o axes[1] = Y (avanti/indietro)
+                const xAxis = axes[2] !== undefined ? axes[2] : axes[0];
+                const yAxis = axes[3] !== undefined ? axes[3] : axes[1];
+
+                // Mano Sinistra: Movimento nello spazio
+                if (source.handedness === 'left') {
+                    if (Math.abs(xAxis) > 0.1 || Math.abs(yAxis) > 0.1) {
+                        const direction = new THREE.Vector3();
+                        camera.getWorldDirection(direction);
+                        direction.y = 0; // Mantiene il movimento sul piano orizzontale
+                        direction.normalize();
+
+                        const sideDirection = new THREE.Vector3();
+                        sideDirection.crossVectors(camera.up, direction).normalize();
+
+                        cameraRig.position.addScaledVector(direction, -yAxis * moveSpeed);
+                        cameraRig.position.addScaledVector(sideDirection, -xAxis * moveSpeed);
+                    }
+                }
+
+                // Mano Destra: Rotazione della vista (Snap / Smooth turn)
+                if (source.handedness === 'right') {
+                    if (Math.abs(xAxis) > 0.2) {
+                        cameraRig.rotation.y -= xAxis * rotateSpeed;
+                    }
                 }
             }
-        });
-        scene.remove(currentHotspotGroup);
+        }
     }
-
-    // 3. Ricrea un gruppo pulito ed azzera l'array degli oggetti interattivi
-    currentHotspotGroup = new THREE.Group();
-    scene.add(currentHotspotGroup);
-    interactiveObjects = [];
-
-    // 4. Genera SOLTANTO gli hotspot dichiarati per QUESTA specifica scena
-    if (sceneData.hotSpots && Array.isArray(sceneData.hotSpots)) {
-        sceneData.hotSpots.forEach(hs => {
-            const pos = convertPitchYawToVector(hs.pitch, hs.yaw, 15);
-            const isScene = hs.type === 'scene';
-
-            const hsNode = new THREE.Group();
-            hsNode.position.copy(pos);
-
-            // Indicatore 3D (Sfera)
-            const hsGeo = new THREE.SphereGeometry(0.25, 32, 32);
-            const hsMat = new THREE.MeshBasicMaterial({ color: isScene ? 0x008CBA : 0xFFA500 });
-            const hsMesh = new THREE.Mesh(hsGeo, hsMat);
-            hsNode.add(hsMesh);
-
-            // Etichetta di testo
-            const sprite = createTextSprite(hs.text || '', isScene);
-            sprite.position.set(0, 0.6, 0);
-            hsNode.add(sprite);
-
-            // Dati per la navigazione
-            hsMesh.userData = { 
-                type: hs.type, 
-                targetScene: hs.sceneId 
-            };
-
-            currentHotspotGroup.add(hsNode);
-
-            // Registra tra gli interattivi SOLO gli hotspot di tipo "scene" della scena corrente
-            if (isScene) {
-                interactiveObjects.push(hsMesh);
-            }
-        });
-    }
-}
 
     function onSelectStart(event) {
         const controller = event.target;
@@ -246,6 +291,11 @@
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function render() {
+        handleJoystickMovement();
+        renderer.render(scene, camera);
     }
 
     async function startVR() {
