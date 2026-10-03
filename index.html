@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tour Virtuale 360° VR Nativo</title>
+    <title>Tour Virtuale 360° VR Universale</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
         #vr-button {
@@ -30,215 +30,235 @@
     <button id="vr-button" onclick="startVR()">ENTRA IN VR (360°)</button>
 
     <script>
-        let scene, camera, renderer, sphere, textureLoader;
-        let controller1, controller2;
-        let raycaster, tempMatrix = new THREE.Matrix4();
-        let interactiveObjects = [];
-        let textCanvasObjects = [];
-        let currentSceneKey = 'scuola';
-
-        // Convertitore da Pitch / Yaw (gradi) a Coordinate 3D (X, Y, Z)
-        function convertPitchYawToVector(pitch, yaw, radius = 20) {
-            const phi = THREE.MathUtils.degToRad(90 - pitch);
-            const theta = THREE.MathUtils.degToRad(yaw + 180);
-
-            const x = -(radius * Math.sin(phi) * Math.sin(theta));
-            const y = radius * Math.cos(phi);
-            const z = radius * Math.sin(phi) * Math.cos(theta);
-
-            return new THREE.Vector3(x, y, z);
-        }
-
-        // Generatore di Etichette di Testo 3D
-        function createTextSprite(text) {
-            const canvas = document.createElement('canvas');
-            const context = canvas.getContext('2d');
-            canvas.width = 512;
-            canvas.height = 128;
-
-            context.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            context.beginPath();
-            context.roundRect(10, 10, 492, 108, 20);
-            context.fill();
-
-            context.lineWidth = 4;
-            context.strokeStyle = '#008CBA';
-            context.stroke();
-
-            context.font = 'Bold 36px Arial';
-            context.fillStyle = '#FFFFFF';
-            context.textAlign = 'center';
-            context.textBaseline = 'middle';
-            context.fillText(text, 256, 64);
-
-            const texture = new THREE.CanvasTexture(canvas);
-            const spriteMaterial = new THREE.SpriteMaterial({ map: texture, depthTest: false });
-            const sprite = new THREE.Sprite(spriteMaterial);
-            sprite.scale.set(4, 1, 1);
-            return sprite;
-        }
-
-        // Definizione Dati delle Scene con le tue Coordinate Originali
-        const scenesData = {
-            'scuola': {
-                panorama: 'foto/scuola.jpg',
-                hotspots: [
-                    { pitch: -5, yaw: 100, target: 'rotonda', text: '➔ Vai alla Rotonda' },
-                    { pitch: 10, yaw: -30, target: null, text: 'ℹ Scuola Secondaria' }
+    // =========================================================================
+    // CONFIGURAZIONE PANNELLUM (Incolla qui qualsiasi configurazione Pannellum!)
+    // =========================================================================
+    const pannellumConfig = {
+        "default": {
+            "firstScene": "scuola"
+        },
+        "scenes": {
+            "scuola": {
+                "title": "Ingresso Scuola",
+                "panorama": "foto/scuola.jpg",
+                "hotSpots": [
+                    { "pitch": -5, "yaw": 100, "type": "scene", "text": "Vai alla Rotonda", "sceneId": "rotonda" },
+                    { "pitch": 10, "yaw": -30, "type": "info", "text": "Scuola Secondaria" }
                 ]
             },
-            'rotonda': {
-                panorama: 'foto/rotonda.jpg',
-                hotspots: [
-                    { pitch: -5, yaw: -80, target: 'scuola', text: '➔ Torna alla Scuola' },
-                    { pitch: -5, yaw: 90, target: 'lidl', text: '➔ Prosegui verso la Lidl' }
+            "rotonda": {
+                "title": "Rotonda Stradale",
+                "panorama": "foto/rotonda.jpg",
+                "hotSpots": [
+                    { "pitch": -5, "yaw": -80, "type": "scene", "text": "Torna alla Scuola", "sceneId": "scuola" },
+                    { "pitch": -5, "yaw": 90, "type": "scene", "text": "Prosegui verso la Lidl", "sceneId": "lidl" }
                 ]
             },
-            'lidl': {
-                panorama: 'foto/lidl.jpg',
-                hotspots: [
-                    { pitch: -5, yaw: -120, target: 'rotonda', text: '➔ Torna alla Rotonda' },
-                    { pitch: 12, yaw: 15, target: null, text: 'ℹ Lidl - Aperto 8:00-20:00' }
+            "lidl": {
+                "title": "Supermercato Lidl",
+                "panorama": "foto/lidl.jpg",
+                "hotSpots": [
+                    { "pitch": -5, "yaw": -120, "type": "scene", "text": "Torna alla Rotonda", "sceneId": "rotonda" },
+                    { "pitch": 12, "yaw": 15, "type": "info", "text": "Lidl - Aperto 8:00-20:00" }
                 ]
             }
-        };
-
-        function init() {
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.xr.enabled = true;
-            document.body.appendChild(renderer.domElement);
-
-            // Sfera Panorama 360°
-            const geometry = new THREE.SphereGeometry(500, 60, 40);
-            geometry.scale(-1, 1, 1);
-
-            textureLoader = new THREE.TextureLoader();
-            const material = new THREE.MeshBasicMaterial();
-            sphere = new THREE.Mesh(geometry, material);
-            scene.add(sphere);
-
-            raycaster = new THREE.Raycaster();
-
-            setupControllers();
-            loadScene('scuola');
-
-            renderer.setAnimationLoop(render);
-            window.addEventListener('resize', onWindowResize);
         }
+    };
 
-        function setupControllers() {
-            controller1 = renderer.xr.getController(0);
-            controller1.addEventListener('selectstart', onSelectStart);
-            scene.add(controller1);
+    // =========================================================================
+    // MOTORE WEBXR GENERICO (Non toccare questo codice)
+    // =========================================================================
+    let scene, camera, renderer, sphere, textureLoader;
+    let controller1, controller2;
+    let raycaster, tempMatrix = new THREE.Matrix4();
+    let currentHotspotGroup = null; // Contenitore unico per facile pulizia
+    let interactiveObjects = [];
 
-            controller2 = renderer.xr.getController(1);
-            controller2.addEventListener('selectstart', onSelectStart);
-            scene.add(controller2);
+    function convertPitchYawToVector(pitch, yaw, radius = 15) {
+        const phi = THREE.MathUtils.degToRad(90 - pitch);
+        const theta = THREE.MathUtils.degToRad(yaw + 180);
+        const x = -(radius * Math.sin(phi) * Math.sin(theta));
+        const y = radius * Math.cos(phi);
+        const z = radius * Math.sin(phi) * Math.cos(theta);
+        return new THREE.Vector3(x, y, z);
+    }
 
-            const laserGeometry = new THREE.BufferGeometry().setFromPoints([
-                new THREE.Vector3(0, 0, 0),
-                new THREE.Vector3(0, 0, -10)
-            ]);
-            const laserMaterial = new THREE.LineBasicMaterial({ color: 0x008CBA });
+    function createTextSprite(text, isScene) {
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.width = 512;
+        canvas.height = 128;
 
-            controller1.add(new THREE.Line(laserGeometry, laserMaterial));
-            controller2.add(new THREE.Line(laserGeometry, laserMaterial));
+        context.fillStyle = 'rgba(0, 0, 0, 0.75)';
+        context.beginPath();
+        context.roundRect(10, 10, 492, 108, 20);
+        context.fill();
+
+        context.lineWidth = 4;
+        context.strokeStyle = isScene ? '#008CBA' : '#FFA500';
+        context.stroke();
+
+        context.font = 'Bold 32px Arial';
+        context.fillStyle = '#FFFFFF';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        
+        const label = (isScene ? "➔ " : "ℹ ") + text;
+        context.fillText(label, 256, 64);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const spriteMaterial = new THREE.SpriteMaterial({ map: texture, depthTest: false });
+        const sprite = new THREE.Sprite(spriteMaterial);
+        sprite.scale.set(3.5, 0.875, 1);
+        return sprite;
+    }
+
+    function init() {
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // Sfera 360
+        const geometry = new THREE.SphereGeometry(500, 60, 40);
+        geometry.scale(-1, 1, 1);
+
+        textureLoader = new THREE.TextureLoader();
+        sphere = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
+        scene.add(sphere);
+
+        raycaster = new THREE.Raycaster();
+        setupControllers();
+
+        // Carica la prima scena definita nella configurazione
+        const firstSceneKey = pannellumConfig.default.firstScene || Object.keys(pannellumConfig.scenes)[0];
+        loadScene(firstSceneKey);
+
+        renderer.setAnimationLoop(() => renderer.render(scene, camera));
+        window.addEventListener('resize', onWindowResize);
+    }
+
+    function setupControllers() {
+        controller1 = renderer.xr.getController(0);
+        controller1.addEventListener('selectstart', onSelectStart);
+        scene.add(controller1);
+
+        controller2 = renderer.xr.getController(1);
+        controller2.addEventListener('selectstart', onSelectStart);
+        scene.add(controller2);
+
+        const laserGeometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, 0, -10)
+        ]);
+        const laserMaterial = new THREE.LineBasicMaterial({ color: 0x008CBA });
+
+        controller1.add(new THREE.Line(laserGeometry, laserMaterial));
+        controller2.add(new THREE.Line(laserGeometry, laserMaterial));
+    }
+
+    function loadScene(sceneKey) {
+        const sceneData = pannellumConfig.scenes[sceneKey];
+        if (!sceneData) return;
+
+        // 1. Carica la nuova foto
+        textureLoader.load(sceneData.panorama, (texture) => {
+            sphere.material.map = texture;
+            sphere.material.needsUpdate = true;
+        });
+
+        // 2. Pulizia TOTALE e garantita dei vecchi hotspot
+        if (currentHotspotGroup) {
+            scene.remove(currentHotspotGroup);
         }
+        currentHotspotGroup = new THREE.Group();
+        scene.add(currentHotspotGroup);
+        interactiveObjects = [];
 
-        function loadScene(key) {
-            currentSceneKey = key;
-            const data = scenesData[key];
-
-            textureLoader.load(data.panorama, (texture) => {
-                sphere.material.map = texture;
-                sphere.material.needsUpdate = true;
-            });
-
-            // Pulizia vecchi Hotspot
-            interactiveObjects.forEach(obj => scene.remove(obj));
-            interactiveObjects = [];
-
-            // Creazione nuovi Hotspot
-            data.hotspots.forEach(hs => {
+        // 3. Generazione Dinamica degli Hotspot letti da Pannellum
+        if (sceneData.hotSpots) {
+            sceneData.hotSpots.forEach(hs => {
                 const pos = convertPitchYawToVector(hs.pitch, hs.yaw, 15);
+                const isScene = hs.type === 'scene';
 
-                const hsGroup = new THREE.Group();
-                hsGroup.position.copy(pos);
+                const hsNode = new THREE.Group();
+                hsNode.position.copy(pos);
 
-                // Indicatore Grafico (Piccola Sfera Cliccabile)
-                const hsGeo = new THREE.SphereGeometry(0.3, 32, 32);
-                const hsMat = new THREE.MeshBasicMaterial({ color: hs.target ? 0x008CBA : 0xFFA500 });
+                // Indicatore 3D (Sfera)
+                const hsGeo = new THREE.SphereGeometry(0.25, 32, 32);
+                const hsMat = new THREE.MeshBasicMaterial({ color: isScene ? 0x008CBA : 0xFFA500 });
                 const hsMesh = new THREE.Mesh(hsGeo, hsMat);
-                hsGroup.add(hsMesh);
+                hsNode.add(hsMesh);
 
-                // Etichetta di Testo con Freccia / Info
-                const textSprite = createTextSprite(hs.text);
-                textSprite.position.set(0, 0.8, 0);
-                hsGroup.add(textSprite);
+                // Etichetta di testo
+                const sprite = createTextSprite(hs.text || '', isScene);
+                sprite.position.set(0, 0.6, 0);
+                hsNode.add(sprite);
 
-                hsGroup.userData = { target: hs.target };
+                // Assegna dati di navigazione
+                hsMesh.userData = { 
+                    type: hs.type, 
+                    targetScene: hs.sceneId 
+                };
 
-                scene.add(hsGroup);
-                if (hs.target) {
+                currentHotspotGroup.add(hsNode);
+
+                // Se è un cambio scena, lo rende interattivo per il raggio del controller
+                if (isScene) {
                     interactiveObjects.push(hsMesh);
                 }
             });
         }
+    }
 
-        function onSelectStart(event) {
-            const controller = event.target;
-            tempMatrix.identity().extractRotation(controller.matrixWorld);
+    function onSelectStart(event) {
+        const controller = event.target;
+        tempMatrix.identity().extractRotation(controller.matrixWorld);
 
-            raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
-            raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+        raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+        raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
-            const intersects = raycaster.intersectObjects(interactiveObjects);
+        const intersects = raycaster.intersectObjects(interactiveObjects);
 
-            if (intersects.length > 0) {
-                const hitMesh = intersects[0].object;
-                const targetScene = hitMesh.parent.userData.target;
-                if (targetScene) {
-                    loadScene(targetScene);
-                }
+        if (intersects.length > 0) {
+            const hitObj = intersects[0].object;
+            if (hitObj.userData.type === 'scene' && hitObj.userData.targetScene) {
+                loadScene(hitObj.userData.targetScene);
             }
         }
+    }
 
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    async function startVR() {
+        if (!navigator.xr) {
+            alert("WebXR non supportato.");
+            return;
         }
 
-        function render() {
-            renderer.render(scene, camera);
+        try {
+            const session = await navigator.xr.requestSession('immersive-vr', {
+                optionalFeatures: ['local-floor', 'bounded-floor']
+            });
+            renderer.xr.setSession(session);
+            document.getElementById('vr-button').style.display = 'none';
+
+            session.addEventListener('end', () => {
+                document.getElementById('vr-button').style.display = 'block';
+            });
+        } catch (e) {
+            alert("Impossibile avviare la VR: " + e.message);
         }
+    }
 
-        async function startVR() {
-            if (!navigator.xr) {
-                alert("WebXR non supportato.");
-                return;
-            }
-
-            try {
-                const session = await navigator.xr.requestSession('immersive-vr', {
-                    optionalFeatures: ['local-floor', 'bounded-floor']
-                });
-                renderer.xr.setSession(session);
-                document.getElementById('vr-button').style.display = 'none';
-
-                session.addEventListener('end', () => {
-                    document.getElementById('vr-button').style.display = 'block';
-                });
-            } catch (e) {
-                alert("Impossibile avviare la VR: " + e.message);
-            }
-        }
-
-        window.onload = init;
+    window.onload = init;
     </script>
 </body>
 </html>
