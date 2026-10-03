@@ -3,126 +3,98 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tour Virtuale 360° VR - Pannellum</title>
-    <!-- CSS Pannellum -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pannellum@2.5.7/build/pannellum.css"/>
+    <title>Tour Virtuale 360° VR Nativo</title>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #000; }
-        #panorama { width: 100vw; height: 100vh; }
-        
-        /* Tasto Custom WebXR Forzato per Quest / Wolvic */
-        #enter-vr-btn {
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
+        #enter-vr {
             position: absolute;
-            bottom: 20px;
-            right: 20px;
-            z-index: 9999;
-            padding: 12px 24px;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 14px 28px;
             background: #008CBA;
             color: #fff;
             border: none;
             border-radius: 8px;
-            font-size: 16px;
+            font-size: 18px;
             font-weight: bold;
             cursor: pointer;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            z-index: 10;
         }
     </style>
+    <!-- Importazione Three.js Nativo per VR -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/webxr/VRButton.js"></script>
 </head>
 <body>
 
-<div id="panorama"></div>
-<button id="enter-vr-btn" onclick="startWebXRSession()">ENTRA IN VR (360°)</button>
+    <button id="enter-vr">CARICAMENTO TOUR...</button>
 
-<!-- Librerie Pannellum + WebXR Bridge -->
-<script src="https://cdn.jsdelivr.net/npm/pannellum@2.5.7/build/pannellum.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-
-<script>
-// 1. Configurazione standard Pannellum
-var viewer = pannellum.viewer('panorama', {
-    "default": {
-        "firstScene": "scuola",
-        "autoLoad": true,
-        "sceneFadeDuration": 1000,
-        "showFullscreenCtrl": true,
-        "orientationOnByDefault": true,
-        "hotSpotDebug": false
-    },
-    "scenes": {
-        "scuola": {
-            "title": "Ingresso Scuola",
-            "panorama": "foto/scuola.jpg",
-            "hotSpots": [
-                { "pitch": -5, "yaw": 100, "type": "scene", "text": "Vai alla Rotonda", "sceneId": "rotonda" },
-                { "pitch": 10, "yaw": -30, "type": "info", "text": "Scuola Secondaria" }
-            ]
-        },
-        "rotonda": {
-            "title": "Rotonda Stradale",
-            "panorama": "foto/rotonda.jpg",
-            "hotSpots": [
-                { "pitch": -5, "yaw": -80, "type": "scene", "text": "Torna alla Scuola", "sceneId": "scuola" },
-                { "pitch": -5, "yaw": 90, "type": "scene", "text": "Prosegui verso la Lidl", "sceneId": "lidl" }
-            ]
-        },
-        "lidl": {
-            "title": "Supermercato Lidl",
-            "panorama": "foto/lidl.jpg",
-            "hotSpots": [
-                { "pitch": -5, "yaw": -120, "type": "scene", "text": "Torna alla Rotonda", "sceneId": "rotonda" },
-                { "pitch": 12, "yaw": 15, "type": "info", "text": "Lidl - Aperto 8:00-20:00" }
-            ]
-        }
-    }
-});
-
-// 2. Funzione per forzare l'uscita dalla finestra 2D ed entrare in VR
-var xrSession = null;
-
-async function startWebXRSession() {
-    // 1. Se c'è già una sessione attiva, chiudila prima di riprovare
-    if (xrSession) {
-        await xrSession.end();
-        xrSession = null;
-        return;
-    }
-
-    if (navigator.xr) {
-        // 2. Verifica se il dispositivo supporta la modalità immersiva VR
-        const supported = await navigator.xr.isSessionSupported('immersive-vr');
-        
-        if (supported) {
-            try {
-                // 3. Richiedi la sessione WebXR
-                xrSession = await navigator.xr.requestSession('immersive-vr', {
-                    optionalFeatures: ['local-floor', 'bounded-floor']
-                });
-
-                // Gestisci la chiusura della sessione quando l'utente esce dalla VR
-                xrSession.addEventListener('end', () => {
-                    xrSession = null;
-                });
-
-                // Forza l'ingrandimento del canvas di Pannellum
-                var canvas = document.querySelector('.pnm-render-container canvas') || document.querySelector('canvas');
-                if (canvas && canvas.requestFullscreen) {
-                    await canvas.requestFullscreen();
-                }
-            } catch (err) {
-                console.error("Errore nell'avvio WebXR:", err);
-                // Se l'errore indica che c'è già una sessione, ripristina la variabile
-                if (err.message.includes("session")) {
-                    xrSession = null;
-                }
+    <script>
+        // Configurazione delle Scene
+        const scenes = {
+            "scuola": {
+                panorama: "foto/scuola.jpg",
+                nextScene: "rotonda",
+                label: "Vai alla Rotonda"
+            },
+            "rotonda": {
+                panorama: "foto/rotonda.jpg",
+                nextScene: "lidl",
+                label: "Vai alla Lidl"
+            },
+            "lidl": {
+                panorama: "foto/lidl.jpg",
+                nextScene: "scuola",
+                label: "Torna alla Scuola"
             }
-        } else {
-            alert("La modalità VR immersiva non è supportata da questo browser.");
-        }
-    } else {
-        alert("WebXR non supportato.");
-    }
-}
-</script>
+        };
 
+        let currentSceneKey = "scuola";
+
+        // Setup Scena Three.js
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true; // Attiva WebXR NATIVO
+        document.body.appendChild(renderer.domElement);
+
+        // Geometria Sferica per proiettare la foto 360° senza distorsioni
+        const geometry = new THREE.SphereGeometry(500, 60, 40);
+        geometry.scale(-1, 1, 1); // Inverte la sfera per vederla dall'interno
+
+        const textureLoader = new THREE.TextureLoader();
+        let material = new THREE.MeshBasicMaterial();
+        const sphere = new THREE.Mesh(geometry, material);
+        scene.add(sphere);
+
+        // Caricamento Foto
+        function loadPanorama(key) {
+            textureLoader.load(scenes[key].panorama, (texture) => {
+                material.map = texture;
+                material.needsUpdate = true;
+            });
+        }
+        loadPanorama(currentSceneKey);
+
+        // Tasto VR Nativo
+        const vrButton = VRButton.createButton(renderer);
+        document.body.appendChild(vrButton);
+        document.getElementById('enter-vr').style.display = 'none';
+
+        // Ridimensionamento Finestra
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Loop di Rendering VR
+        renderer.setAnimationLoop(() => {
+            renderer.render(scene, camera);
+        });
+    </script>
 </body>
 </html>
