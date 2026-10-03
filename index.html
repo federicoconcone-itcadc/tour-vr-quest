@@ -23,7 +23,6 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
     </style>
-    <!-- Three.js monolitico -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
@@ -35,27 +34,71 @@
         let controller1, controller2;
         let raycaster, tempMatrix = new THREE.Matrix4();
         let interactiveObjects = [];
+        let textCanvasObjects = [];
         let currentSceneKey = 'scuola';
 
-        // Definizione Dati delle Scene e degli Hotspot 3D
+        // Convertitore da Pitch / Yaw (gradi) a Coordinate 3D (X, Y, Z)
+        function convertPitchYawToVector(pitch, yaw, radius = 20) {
+            const phi = THREE.MathUtils.degToRad(90 - pitch);
+            const theta = THREE.MathUtils.degToRad(yaw + 180);
+
+            const x = -(radius * Math.sin(phi) * Math.sin(theta));
+            const y = radius * Math.cos(phi);
+            const z = radius * Math.sin(phi) * Math.cos(theta);
+
+            return new THREE.Vector3(x, y, z);
+        }
+
+        // Generatore di Etichette di Testo 3D
+        function createTextSprite(text) {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = 512;
+            canvas.height = 128;
+
+            context.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            context.beginPath();
+            context.roundRect(10, 10, 492, 108, 20);
+            context.fill();
+
+            context.lineWidth = 4;
+            context.strokeStyle = '#008CBA';
+            context.stroke();
+
+            context.font = 'Bold 36px Arial';
+            context.fillStyle = '#FFFFFF';
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+            context.fillText(text, 256, 64);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const spriteMaterial = new THREE.SpriteMaterial({ map: texture, depthTest: false });
+            const sprite = new THREE.Sprite(spriteMaterial);
+            sprite.scale.set(4, 1, 1);
+            return sprite;
+        }
+
+        // Definizione Dati delle Scene con le tue Coordinate Originali
         const scenesData = {
             'scuola': {
                 panorama: 'foto/scuola.jpg',
                 hotspots: [
-                    { position: [2, 0, -4], target: 'rotonda', text: 'Vai alla Rotonda' }
+                    { pitch: -5, yaw: 100, target: 'rotonda', text: '➔ Vai alla Rotonda' },
+                    { pitch: 10, yaw: -30, target: null, text: 'ℹ Scuola Secondaria' }
                 ]
             },
             'rotonda': {
                 panorama: 'foto/rotonda.jpg',
                 hotspots: [
-                    { position: [-3, 0, -4], target: 'scuola', text: 'Torna alla Scuola' },
-                    { position: [3, 0, -4], target: 'lidl', text: 'Prosegui alla Lidl' }
+                    { pitch: -5, yaw: -80, target: 'scuola', text: '➔ Torna alla Scuola' },
+                    { pitch: -5, yaw: 90, target: 'lidl', text: '➔ Prosegui verso la Lidl' }
                 ]
             },
             'lidl': {
                 panorama: 'foto/lidl.jpg',
                 hotspots: [
-                    { position: [-3, 0, -4], target: 'rotonda', text: 'Torna alla Rotonda' }
+                    { pitch: -5, yaw: -120, target: 'rotonda', text: '➔ Torna alla Rotonda' },
+                    { pitch: 12, yaw: 15, target: null, text: 'ℹ Lidl - Aperto 8:00-20:00' }
                 ]
             }
         };
@@ -78,13 +121,9 @@
             sphere = new THREE.Mesh(geometry, material);
             scene.add(sphere);
 
-            // Raycaster per intercettare i click dei controller sui pulsanti
             raycaster = new THREE.Raycaster();
 
-            // Configurazione Controller VR (Raggi Laser)
             setupControllers();
-
-            // Carica la prima scena con i relativi hotspot
             loadScene('scuola');
 
             renderer.setAnimationLoop(render);
@@ -92,64 +131,64 @@
         }
 
         function setupControllers() {
-            // Controller 1 (Mano Destra/Sinistra)
             controller1 = renderer.xr.getController(0);
             controller1.addEventListener('selectstart', onSelectStart);
             scene.add(controller1);
 
-            // Controller 2
             controller2 = renderer.xr.getController(1);
             controller2.addEventListener('selectstart', onSelectStart);
             scene.add(controller2);
 
-            // Aggiungi un raggio visibile a ciascun controller
             const laserGeometry = new THREE.BufferGeometry().setFromPoints([
                 new THREE.Vector3(0, 0, 0),
-                new THREE.Vector3(0, 0, -5)
+                new THREE.Vector3(0, 0, -10)
             ]);
             const laserMaterial = new THREE.LineBasicMaterial({ color: 0x008CBA });
 
-            const line1 = new THREE.Line(laserGeometry, laserMaterial);
-            controller1.add(line1);
-
-            const line2 = new THREE.Line(laserGeometry, laserMaterial);
-            controller2.add(line2);
+            controller1.add(new THREE.Line(laserGeometry, laserMaterial));
+            controller2.add(new THREE.Line(laserGeometry, laserMaterial));
         }
 
         function loadScene(key) {
             currentSceneKey = key;
             const data = scenesData[key];
 
-            // 1. Cambia lo sfondo 360°
             textureLoader.load(data.panorama, (texture) => {
                 sphere.material.map = texture;
                 sphere.material.needsUpdate = true;
             });
 
-            // 2. Rimuovi i vecchi hotspot dalla scena
+            // Pulizia vecchi Hotspot
             interactiveObjects.forEach(obj => scene.remove(obj));
             interactiveObjects = [];
 
-            // 3. Genera i nuovi Hotspot 3D
+            // Creazione nuovi Hotspot
             data.hotspots.forEach(hs => {
-                const hsGroup = new THREE.Group();
-                hsGroup.position.set(...hs.position);
+                const pos = convertPitchYawToVector(hs.pitch, hs.yaw, 15);
 
-                // Sfera azzurra per l'hotspot
+                const hsGroup = new THREE.Group();
+                hsGroup.position.copy(pos);
+
+                // Indicatore Grafico (Piccola Sfera Cliccabile)
                 const hsGeo = new THREE.SphereGeometry(0.3, 32, 32);
-                const hsMat = new THREE.MeshBasicMaterial({ color: 0x008CBA });
+                const hsMat = new THREE.MeshBasicMaterial({ color: hs.target ? 0x008CBA : 0xFFA500 });
                 const hsMesh = new THREE.Mesh(hsGeo, hsMat);
                 hsGroup.add(hsMesh);
 
-                // Salva i dati della destinazione nell'oggetto
+                // Etichetta di Testo con Freccia / Info
+                const textSprite = createTextSprite(hs.text);
+                textSprite.position.set(0, 0.8, 0);
+                hsGroup.add(textSprite);
+
                 hsGroup.userData = { target: hs.target };
 
                 scene.add(hsGroup);
-                interactiveObjects.push(hsMesh); // Aggiunge alla lista degli oggetti cliccabili
+                if (hs.target) {
+                    interactiveObjects.push(hsMesh);
+                }
             });
         }
 
-        // Gestione del click del Grilletto (Trigger)
         function onSelectStart(event) {
             const controller = event.target;
             tempMatrix.identity().extractRotation(controller.matrixWorld);
