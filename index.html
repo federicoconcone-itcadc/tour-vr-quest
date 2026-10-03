@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tour Virtuale 360° VR</title>
+    <title>Tour Virtuale 360° VR Nativo</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
         #vr-button {
@@ -23,7 +23,7 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
     </style>
-    <!-- Three.js monolitico per evitare problemi di moduli/CDN su Wolvic -->
+    <!-- Three.js monolitico -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
@@ -32,26 +32,44 @@
 
     <script>
         let scene, camera, renderer, sphere, textureLoader;
-        let currentScene = 'scuola';
+        let controller1, controller2;
+        let raycaster, tempMatrix = new THREE.Matrix4();
+        let interactiveObjects = [];
+        let currentSceneKey = 'scuola';
 
-        const scenes = {
-            'scuola': 'foto/scuola.jpg',
-            'rotonda': 'foto/rotonda.jpg',
-            'lidl': 'foto/lidl.jpg'
+        // Definizione Dati delle Scene e degli Hotspot 3D
+        const scenesData = {
+            'scuola': {
+                panorama: 'foto/scuola.jpg',
+                hotspots: [
+                    { position: [2, 0, -4], target: 'rotonda', text: 'Vai alla Rotonda' }
+                ]
+            },
+            'rotonda': {
+                panorama: 'foto/rotonda.jpg',
+                hotspots: [
+                    { position: [-3, 0, -4], target: 'scuola', text: 'Torna alla Scuola' },
+                    { position: [3, 0, -4], target: 'lidl', text: 'Prosegui alla Lidl' }
+                ]
+            },
+            'lidl': {
+                panorama: 'foto/lidl.jpg',
+                hotspots: [
+                    { position: [-3, 0, -4], target: 'rotonda', text: 'Torna alla Rotonda' }
+                ]
+            }
         };
 
         function init() {
-            // 1. Scena e Fotocamera
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 
-            // 2. Renderer WebGL con WebXR Abilitato
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.xr.enabled = true;
             document.body.appendChild(renderer.domElement);
 
-            // 3. Geometria Sferica 360° (Invertita per vederla dall'interno)
+            // Sfera Panorama 360°
             const geometry = new THREE.SphereGeometry(500, 60, 40);
             geometry.scale(-1, 1, 1);
 
@@ -60,22 +78,94 @@
             sphere = new THREE.Mesh(geometry, material);
             scene.add(sphere);
 
-            // Carica la prima scena
-            loadPanorama(scenes[currentScene]);
+            // Raycaster per intercettare i click dei controller sui pulsanti
+            raycaster = new THREE.Raycaster();
 
-            // Avvia il loop di rendering
-            renderer.setAnimationLoop(() => {
-                renderer.render(scene, camera);
-            });
+            // Configurazione Controller VR (Raggi Laser)
+            setupControllers();
 
+            // Carica la prima scena con i relativi hotspot
+            loadScene('scuola');
+
+            renderer.setAnimationLoop(render);
             window.addEventListener('resize', onWindowResize);
         }
 
-        function loadPanorama(url) {
-            textureLoader.load(url, (texture) => {
+        function setupControllers() {
+            // Controller 1 (Mano Destra/Sinistra)
+            controller1 = renderer.xr.getController(0);
+            controller1.addEventListener('selectstart', onSelectStart);
+            scene.add(controller1);
+
+            // Controller 2
+            controller2 = renderer.xr.getController(1);
+            controller2.addEventListener('selectstart', onSelectStart);
+            scene.add(controller2);
+
+            // Aggiungi un raggio visibile a ciascun controller
+            const laserGeometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(0, 0, -5)
+            ]);
+            const laserMaterial = new THREE.LineBasicMaterial({ color: 0x008CBA });
+
+            const line1 = new THREE.Line(laserGeometry, laserMaterial);
+            controller1.add(line1);
+
+            const line2 = new THREE.Line(laserGeometry, laserMaterial);
+            controller2.add(line2);
+        }
+
+        function loadScene(key) {
+            currentSceneKey = key;
+            const data = scenesData[key];
+
+            // 1. Cambia lo sfondo 360°
+            textureLoader.load(data.panorama, (texture) => {
                 sphere.material.map = texture;
                 sphere.material.needsUpdate = true;
             });
+
+            // 2. Rimuovi i vecchi hotspot dalla scena
+            interactiveObjects.forEach(obj => scene.remove(obj));
+            interactiveObjects = [];
+
+            // 3. Genera i nuovi Hotspot 3D
+            data.hotspots.forEach(hs => {
+                const hsGroup = new THREE.Group();
+                hsGroup.position.set(...hs.position);
+
+                // Sfera azzurra per l'hotspot
+                const hsGeo = new THREE.SphereGeometry(0.3, 32, 32);
+                const hsMat = new THREE.MeshBasicMaterial({ color: 0x008CBA });
+                const hsMesh = new THREE.Mesh(hsGeo, hsMat);
+                hsGroup.add(hsMesh);
+
+                // Salva i dati della destinazione nell'oggetto
+                hsGroup.userData = { target: hs.target };
+
+                scene.add(hsGroup);
+                interactiveObjects.push(hsMesh); // Aggiunge alla lista degli oggetti cliccabili
+            });
+        }
+
+        // Gestione del click del Grilletto (Trigger)
+        function onSelectStart(event) {
+            const controller = event.target;
+            tempMatrix.identity().extractRotation(controller.matrixWorld);
+
+            raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+            raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+            const intersects = raycaster.intersectObjects(interactiveObjects);
+
+            if (intersects.length > 0) {
+                const hitMesh = intersects[0].object;
+                const targetScene = hitMesh.parent.userData.target;
+                if (targetScene) {
+                    loadScene(targetScene);
+                }
+            }
         }
 
         function onWindowResize() {
@@ -84,10 +174,13 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        // Avvio della Sessione VR Nativa
+        function render() {
+            renderer.render(scene, camera);
+        }
+
         async function startVR() {
             if (!navigator.xr) {
-                alert("WebXR non supportato su questo browser.");
+                alert("WebXR non supportato.");
                 return;
             }
 
@@ -95,7 +188,6 @@
                 const session = await navigator.xr.requestSession('immersive-vr', {
                     optionalFeatures: ['local-floor', 'bounded-floor']
                 });
-                
                 renderer.xr.setSession(session);
                 document.getElementById('vr-button').style.display = 'none';
 
@@ -107,7 +199,6 @@
             }
         }
 
-        // Inizializza al caricamento
         window.onload = init;
     </script>
 </body>
