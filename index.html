@@ -161,58 +161,69 @@
     }
 
     function loadScene(sceneKey) {
-        const sceneData = pannellumConfig.scenes[sceneKey];
-        if (!sceneData) return;
+    const sceneData = pannellumConfig.scenes[sceneKey];
+    if (!sceneData) return;
 
-        // 1. Carica la nuova foto
-        textureLoader.load(sceneData.panorama, (texture) => {
-            sphere.material.map = texture;
-            sphere.material.needsUpdate = true;
-        });
+    // 1. Carica la nuova foto panorama
+    textureLoader.load(sceneData.panorama, (texture) => {
+        sphere.material.map = texture;
+        sphere.material.needsUpdate = true;
+    });
 
-        // 2. Pulizia TOTALE e garantita dei vecchi hotspot
-        if (currentHotspotGroup) {
-            scene.remove(currentHotspotGroup);
-        }
-        currentHotspotGroup = new THREE.Group();
-        scene.add(currentHotspotGroup);
-        interactiveObjects = [];
-
-        // 3. Generazione Dinamica degli Hotspot letti da Pannellum
-        if (sceneData.hotSpots) {
-            sceneData.hotSpots.forEach(hs => {
-                const pos = convertPitchYawToVector(hs.pitch, hs.yaw, 15);
-                const isScene = hs.type === 'scene';
-
-                const hsNode = new THREE.Group();
-                hsNode.position.copy(pos);
-
-                // Indicatore 3D (Sfera)
-                const hsGeo = new THREE.SphereGeometry(0.25, 32, 32);
-                const hsMat = new THREE.MeshBasicMaterial({ color: isScene ? 0x008CBA : 0xFFA500 });
-                const hsMesh = new THREE.Mesh(hsGeo, hsMat);
-                hsNode.add(hsMesh);
-
-                // Etichetta di testo
-                const sprite = createTextSprite(hs.text || '', isScene);
-                sprite.position.set(0, 0.6, 0);
-                hsNode.add(sprite);
-
-                // Assegna dati di navigazione
-                hsMesh.userData = { 
-                    type: hs.type, 
-                    targetScene: hs.sceneId 
-                };
-
-                currentHotspotGroup.add(hsNode);
-
-                // Se è un cambio scena, lo rende interattivo per il raggio del controller
-                if (isScene) {
-                    interactiveObjects.push(hsMesh);
+    // 2. PULIZIA PROFONDA: Distrugge fisicamente tutti i vecchi hotspot dalla memoria/GPU
+    if (currentHotspotGroup) {
+        currentHotspotGroup.traverse((child) => {
+            if (child.isMesh || child.isSprite) {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (child.material.map) child.material.map.dispose();
+                    child.material.dispose();
                 }
-            });
-        }
+            }
+        });
+        scene.remove(currentHotspotGroup);
     }
+
+    // 3. Ricrea un gruppo pulito ed azzera l'array degli oggetti interattivi
+    currentHotspotGroup = new THREE.Group();
+    scene.add(currentHotspotGroup);
+    interactiveObjects = [];
+
+    // 4. Genera SOLTANTO gli hotspot dichiarati per QUESTA specifica scena
+    if (sceneData.hotSpots && Array.isArray(sceneData.hotSpots)) {
+        sceneData.hotSpots.forEach(hs => {
+            const pos = convertPitchYawToVector(hs.pitch, hs.yaw, 15);
+            const isScene = hs.type === 'scene';
+
+            const hsNode = new THREE.Group();
+            hsNode.position.copy(pos);
+
+            // Indicatore 3D (Sfera)
+            const hsGeo = new THREE.SphereGeometry(0.25, 32, 32);
+            const hsMat = new THREE.MeshBasicMaterial({ color: isScene ? 0x008CBA : 0xFFA500 });
+            const hsMesh = new THREE.Mesh(hsGeo, hsMat);
+            hsNode.add(hsMesh);
+
+            // Etichetta di testo
+            const sprite = createTextSprite(hs.text || '', isScene);
+            sprite.position.set(0, 0.6, 0);
+            hsNode.add(sprite);
+
+            // Dati per la navigazione
+            hsMesh.userData = { 
+                type: hs.type, 
+                targetScene: hs.sceneId 
+            };
+
+            currentHotspotGroup.add(hsNode);
+
+            // Registra tra gli interattivi SOLO gli hotspot di tipo "scene" della scena corrente
+            if (isScene) {
+                interactiveObjects.push(hsMesh);
+            }
+        });
+    }
+}
 
     function onSelectStart(event) {
         const controller = event.target;
